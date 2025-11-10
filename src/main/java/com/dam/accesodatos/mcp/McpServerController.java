@@ -289,4 +289,230 @@ public class McpServerController {
         }
     }
 
+    /**
+     * Busca usuarios con filtros dinámicos y paginación
+     */
+    @PostMapping("/search_users")
+    public ResponseEntity<Map<String, Object>> searchUsers(@RequestBody Map<String, Object> request) {
+        logger.debug("Buscando usuarios con filtros dinámicos");
+
+        try {
+            com.dam.accesodatos.model.UserQueryDto query = new com.dam.accesodatos.model.UserQueryDto();
+
+            if (request.containsKey("department")) {
+                query.setDepartment((String) request.get("department"));
+            }
+            if (request.containsKey("role")) {
+                query.setRole((String) request.get("role"));
+            }
+            if (request.containsKey("active")) {
+                query.setActive((Boolean) request.get("active"));
+            }
+            if (request.containsKey("limit")) {
+                query.setLimit(((Number) request.get("limit")).intValue());
+            }
+            if (request.containsKey("offset")) {
+                query.setOffset(((Number) request.get("offset")).intValue());
+            }
+
+            List<User> users = databaseUserService.searchUsers(query);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("tool", "search_users");
+            response.put("result", users);
+            response.put("count", users.size());
+            response.put("status", "success");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error buscando usuarios con filtros", e);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Error buscando usuarios: " + e.getMessage());
+            error.put("tool", "search_users");
+            error.put("status", "error");
+
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    /**
+     * Transfiere múltiples usuarios en una transacción
+     */
+    @PostMapping("/transfer_data")
+    public ResponseEntity<Map<String, Object>> transferData(@RequestBody Map<String, Object> request) {
+        logger.debug("Transfiriendo datos con transacción");
+
+        try {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> usersData = (List<Map<String, Object>>) request.get("users");
+
+            List<User> users = usersData.stream()
+                    .map(userData -> {
+                        User user = new User();
+                        user.setName((String) userData.get("name"));
+                        user.setEmail((String) userData.get("email"));
+                        user.setDepartment((String) userData.get("department"));
+                        user.setRole((String) userData.get("role"));
+                        if (userData.containsKey("active")) {
+                            user.setActive((Boolean) userData.get("active"));
+                        }
+                        return user;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+
+            boolean result = databaseUserService.transferData(users);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("tool", "transfer_data");
+            response.put("result", result);
+            response.put("inserted_count", users.size());
+            response.put("status", "success");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error en transacción de datos", e);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Error en transacción: " + e.getMessage());
+            error.put("tool", "transfer_data");
+            error.put("status", "error");
+
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    /**
+     * Inserta múltiples usuarios usando batch operations
+     */
+    @PostMapping("/batch_insert_users")
+    public ResponseEntity<Map<String, Object>> batchInsertUsers(@RequestBody Map<String, Object> request) {
+        logger.debug("Insertando usuarios con batch operations");
+
+        try {
+            @SuppressWarnings("unchecked")
+            List<Map<String, Object>> usersData = (List<Map<String, Object>>) request.get("users");
+
+            List<User> users = usersData.stream()
+                    .map(userData -> {
+                        User user = new User();
+                        user.setName((String) userData.get("name"));
+                        user.setEmail((String) userData.get("email"));
+                        user.setDepartment((String) userData.get("department"));
+                        user.setRole((String) userData.get("role"));
+                        if (userData.containsKey("active")) {
+                            user.setActive((Boolean) userData.get("active"));
+                        }
+                        return user;
+                    })
+                    .collect(java.util.stream.Collectors.toList());
+
+            int insertedCount = databaseUserService.batchInsertUsers(users);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("tool", "batch_insert_users");
+            response.put("result", insertedCount);
+            response.put("status", "success");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error en batch insert", e);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Error en batch insert: " + e.getMessage());
+            error.put("tool", "batch_insert_users");
+            error.put("status", "error");
+
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    /**
+     * Obtiene metadatos de la base de datos
+     */
+    @PostMapping("/get_database_info")
+    public ResponseEntity<Map<String, Object>> getDatabaseInfo() {
+        logger.debug("Obteniendo información de la base de datos");
+
+        try {
+            String info = databaseUserService.getDatabaseInfo();
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("tool", "get_database_info");
+            response.put("result", info);
+            response.put("status", "success");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error obteniendo información de BD", e);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Error obteniendo información: " + e.getMessage());
+            error.put("tool", "get_database_info");
+            error.put("status", "error");
+
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    /**
+     * Obtiene metadatos de las columnas de una tabla
+     */
+    @PostMapping("/get_table_columns")
+    public ResponseEntity<Map<String, Object>> getTableColumns(@RequestBody Map<String, String> request) {
+        logger.debug("Obteniendo columnas de tabla");
+
+        try {
+            String tableName = request.get("tableName");
+            List<Map<String, Object>> columns = databaseUserService.getTableColumns(tableName);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("tool", "get_table_columns");
+            response.put("result", columns);
+            response.put("column_count", columns.size());
+            response.put("status", "success");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error obteniendo columnas", e);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Error obteniendo columnas: " + e.getMessage());
+            error.put("tool", "get_table_columns");
+            error.put("status", "error");
+
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
+    /**
+     * Cuenta usuarios activos por departamento
+     */
+    @PostMapping("/execute_count_by_department")
+    public ResponseEntity<Map<String, Object>> executeCountByDepartment(@RequestBody Map<String, String> request) {
+        logger.debug("Contando usuarios por departamento");
+
+        try {
+            String department = request.get("department");
+            int count = databaseUserService.executeCountByDepartment(department);
+
+            Map<String, Object> response = new HashMap<>();
+            response.put("tool", "execute_count_by_department");
+            response.put("result", count);
+            response.put("department", department);
+            response.put("status", "success");
+
+            return ResponseEntity.ok(response);
+        } catch (Exception e) {
+            logger.error("Error contando usuarios", e);
+
+            Map<String, Object> error = new HashMap<>();
+            error.put("error", "Error contando usuarios: " + e.getMessage());
+            error.put("tool", "execute_count_by_department");
+            error.put("status", "error");
+
+            return ResponseEntity.status(500).body(error);
+        }
+    }
+
 }
