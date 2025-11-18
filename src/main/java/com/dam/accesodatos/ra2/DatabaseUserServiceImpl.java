@@ -165,28 +165,32 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
      */
     @Override
     public User findUserById(Long id) {
-        String sql = "SELECT id, name, email, department, role, active, created_at, updated_at " +
-                     "FROM users WHERE id = ?";
-
+        final String sql = "SELECT * FROM users WHERE id = ?";
         try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement pstmt = conn.prepareStatement(sql)) {
-
-            // Setear parámetro WHERE id = ?
-            pstmt.setLong(1, id);
-
-            try (ResultSet rs = pstmt.executeQuery()) {
-                // next() retorna true si hay un resultado, false si no
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    // Mapear ResultSet a objeto User
-                    return mapResultSetToUser(rs);
+                    // --- ESTRATEGIA: Usar constructor vacío y setters ---
+                    User user = new User(); // 1. Crea un objeto User vacío
+
+                    // 2. Pobla el objeto usando los setters
+                    user.setId(rs.getLong("id"));
+                    user.setName(rs.getString("name"));
+                    user.setEmail(rs.getString("email"));
+                    user.setDepartment(rs.getString("department"));
+                    user.setRole(rs.getString("role"));
+                    user.setActive(rs.getBoolean("active"));
+                    user.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                    user.setUpdatedAt(rs.getTimestamp("updated_at").toLocalDateTime());
+
+                    return user;
                 } else {
-                    // No se encontró usuario con ese ID
                     return null;
                 }
             }
-
         } catch (SQLException e) {
-            throw new RuntimeException("Error al buscar usuario con ID " + id + ": " + e.getMessage(), e);
+            throw new RuntimeException("Error al buscar usuario por ID.", e);
         }
     }
 
@@ -244,19 +248,23 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
     @Override
     public boolean deleteUser(Long id) {
 
-        String sql = "DELETE FROM users WHERE id = ?";
+        final String sql = "DELETE FROM users WHERE id = ?";
 
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
 
-        try (Connection conn = dataSource.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)){
+            ps.setLong(1, id);
 
-            ps.setLong(1,id);
-
+            // executeUpdate() retorna el número de filas afectadas.
             int rowsAffected = ps.executeUpdate();
+
+            // Si se afectó una fila (o más, aunque con ID debería ser una),
+            // la eliminación fue exitosa. Si fue 0, el usuario no existía.
             return rowsAffected > 0;
 
         } catch (SQLException e) {
-            throw new RuntimeException("Error al eliminar usuario con ID " + id + ": " + e.getMessage(), e);
+            System.err.println("Error de SQL al eliminar usuario con ID " + id + ": " + e.getMessage());
+            throw new RuntimeException("Error de base de datos al eliminar el usuario.", e);
         }
 
     }
@@ -266,25 +274,33 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
 
         List<User> users = new ArrayList<>();
 
-        final String sql  = "SELECT * FROM users";
+        // --- CORRECCIÓN CLAVE: Se añade "ORDER BY created_at DESC" a la consulta ---
+        // Esto asegura que los usuarios más recientemente creados aparezcan primero en la lista,
+        // cumpliendo con el requisito del test.
+        final String sql = "SELECT * FROM users ORDER BY created_at DESC";
 
         try (Connection conn = DatabaseConfig.getConnection();
              Statement stmt = conn.createStatement();
-             ResultSet rs = stmt.executeQuery(sql)){
+             ResultSet rs = stmt.executeQuery(sql)) {
+
             while (rs.next()) {
-                Long id = rs.getLong("id");
-                String name = rs.getString("name");
-                String email = rs.getString("email");
-                String department = rs.getString("department");
-                String role = rs.getString("role");
-                User user = new User(id, name, email, department, role);
+                // Se usa el constructor por defecto y los setters para ser compatibles con tu clase User.
+                User user = new User();
+                user.setId(rs.getLong("id"));
+                user.setName(rs.getString("name"));
+                user.setEmail(rs.getString("email"));
+                user.setDepartment(rs.getString("department"));
+                user.setRole(rs.getString("role"));
+                user.setActive(rs.getBoolean("active"));
+                user.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                user.setUpdatedAt(rs.getTimestamp("updated_at").toLocalDateTime());
+
                 users.add(user);
             }
-
         } catch (SQLException e) {
-            System.err.println("Error de SQL al buscar todos los usuarios: "+ e.getMessage());
-            throw new RuntimeException("Error de base de datos al obtener los usuarios.");
+            throw new RuntimeException("Error de base de datos al obtener todos los usuarios.", e);
         }
+
         return users;
     }
 
@@ -293,38 +309,32 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
     @Override
     public List<User> findUsersByDepartment(String department) {
         List<User> users = new ArrayList<>();
-        // La consulta SQL con un marcador de posición para el departamento.
-        // Incluimos el ORDER BY para ordenar los resultados alfabéticamente por nombre.
-        final String sql = "SELECT * FROM users WHERE department = ? ORDER BY name";
 
-        // Usamos try-with-resources para la gestión automática de Connection, PreparedStatement y ResultSet.
+
+        final String sql = "SELECT * FROM users WHERE department = ? AND active = true ORDER BY name";
+
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-            // Asignamos el valor del parámetro 'department' al primer (y único) marcador '?'.
-            // Esto previene la inyección SQL.
             ps.setString(1, department);
 
-            // Ejecutamos la consulta.
             try (ResultSet rs = ps.executeQuery()) {
-                // Iteramos sobre los resultados.
                 while (rs.next()) {
-                    // Mapeamos cada fila a un objeto User.
-                    // (Asumiendo que la clase User tiene un campo 'department')
-                    Long id = rs.getLong("id");
-                    String name = rs.getString("name");
-                    String email = rs.getString("email");
-                    String role = rs.getString("role");
-                    String userDepartment = rs.getString("department"); // Leemos el departamento de la BBDD
 
-                    // Creamos el objeto User y lo añadimos a la lista.
-                    // NOTA: Asegúrate de que tu clase User y su constructor acepten el campo 'department'.
-                    User user = new User(id,name,email,userDepartment,role);
+                    User user = new User();
+                    user.setId(rs.getLong("id"));
+                    user.setName(rs.getString("name"));
+                    user.setEmail(rs.getString("email"));
+                    user.setDepartment(rs.getString("department"));
+                    user.setRole(rs.getString("role"));
+                    user.setActive(rs.getBoolean("active"));
+                    user.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                    user.setUpdatedAt(rs.getTimestamp("updated_at").toLocalDateTime());
+
                     users.add(user);
                 }
             }
         } catch (SQLException e) {
-            System.err.println("Error de SQL al buscar usuarios por departamento '" + department + "': " + e.getMessage());
             throw new RuntimeException("Error de base de datos al buscar usuarios por departamento.", e);
         }
 
@@ -336,11 +346,8 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
     @Override
     public List<User> searchUsers(UserQueryDto query) {
         List<User> users = new ArrayList<>();
-
-
         StringBuilder sql = new StringBuilder("SELECT * FROM users WHERE 1=1");
-        List<Object> params = new ArrayList<>(); // Lista para guardar los parámetros en orden
-
+        List<Object> params = new ArrayList<>();
 
         if (query.getDepartment() != null && !query.getDepartment().isEmpty()) {
             sql.append(" AND department = ?");
@@ -350,22 +357,18 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
             sql.append(" AND role = ?");
             params.add(query.getRole());
         }
+        // Asumiendo que la columna en la BBDD se llama 'active'
         if (query.getActive() != null) {
-            sql.append(" AND is_active = ?");
+            sql.append(" AND active = ?");
             params.add(query.getActive());
         }
-
 
         sql.append(" ORDER BY id LIMIT ? OFFSET ?");
         params.add(query.getSize());
         params.add(query.getPage() * query.getSize());
 
-        System.out.println("SQL Dinámico Ejecutado: " + sql); // Para depuración
-
-
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql.toString())) {
-
 
             int paramIndex = 1;
             for (Object param : params) {
@@ -374,22 +377,22 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
 
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
-                    // Mapear cada fila a un objeto User
-                    // (Asegúrate de que User y su constructor acepten 'role')
-                    users.add(new User(
-                            rs.getLong("id"),
-                            rs.getString("name"),
-                            rs.getString("email"),
-                            rs.getString("department"),
-                            rs.getString("role")
-                    ));
+                    // --- ESTRATEGIA: Usar constructor vacío y setters ---
+                    User user = new User();
+                    user.setId(rs.getLong("id"));
+                    user.setName(rs.getString("name"));
+                    user.setEmail(rs.getString("email"));
+                    user.setDepartment(rs.getString("department"));
+                    user.setRole(rs.getString("role"));
+                    user.setActive(rs.getBoolean("active"));
+                    user.setCreatedAt(rs.getTimestamp("created_at").toLocalDateTime());
+                    user.setUpdatedAt(rs.getTimestamp("updated_at").toLocalDateTime());
+                    users.add(user);
                 }
             }
         } catch (SQLException e) {
-            System.err.println("Error de SQL en búsqueda dinámica: " + e.getMessage());
-            throw new RuntimeException("Error de base de datos en búsqueda dinámica.", e);
+            throw new RuntimeException("Error en búsqueda dinámica.", e);
         }
-
         return users;
     }
 
@@ -475,49 +478,76 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
             return 0;
         }
 
-
-        final String sql = "INSERT INTO users (id, name, email, is_active, last_login, department, role) " +
+        // --- CORRECCIÓN 1: La sentencia SQL NO incluye la columna 'id' ---
+        // Se asume que la base de datos generará el ID automáticamente.
+        // Los nombres de las columnas ('active', 'created_at', etc.) deben coincidir con tu tabla.
+        final String sql = "INSERT INTO users (name, email, department, role, active, created_at, updated_at) " +
                 "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
+        Connection conn = null;
+        try {
+            conn = DatabaseConfig.getConnection();
 
-        try (Connection conn = DatabaseConfig.getConnection();
-             PreparedStatement ps = conn.prepareStatement(sql)) {
+            // Usamos un PreparedStatement dentro del try-with-resources
+            try (PreparedStatement ps = conn.prepareStatement(sql)) {
 
+                // Desactivamos auto-commit para un rendimiento óptimo en operaciones batch
+                conn.setAutoCommit(false);
 
-            conn.setAutoCommit(false);
+                for (User user : users) {
+                    // --- CORRECCIÓN 2: Los índices de los parámetros se ajustan ---
+                    // Ahora el 'name' es el parámetro 1, 'email' el 2, y así sucesivamente.
+                    ps.setString(1, user.getName());
+                    ps.setString(2, user.getEmail());
+                    ps.setString(3, user.getDepartment());
+                    ps.setString(4, user.getRole());
+                    ps.setBoolean(5, user.getActive());
+                    // Aseguramos que las fechas no sean nulas para evitar errores
+                    ps.setTimestamp(6, java.sql.Timestamp.valueOf(
+                            user.getCreatedAt() != null ? user.getCreatedAt() : LocalDateTime.now()
+                    ));
+                    ps.setTimestamp(7, java.sql.Timestamp.valueOf(
+                            user.getUpdatedAt() != null ? user.getUpdatedAt() : LocalDateTime.now()
+                    ));
 
+                    ps.addBatch();
+                }
 
-            for (User user : users) {
-                ps.setLong(1, user.getId());
-                ps.setString(2, user.getName());
-                ps.setString(3, user.getEmail());
-                ps.setString(6, user.getDepartment());
-                ps.setString(7, user.getRole());
+                int[] results = ps.executeBatch();
+                conn.commit();
 
+                // Contamos el número de inserciones exitosas
+                int successfulInserts = 0;
+                for (int result : results) {
+                    // Statement.SUCCESS_NO_INFO es una constante que algunos drivers devuelven
+                    // para indicar éxito sin dar un conteo de filas.
+                    if (result >= 1 || result == Statement.SUCCESS_NO_INFO) {
+                        successfulInserts++;
+                    }
+                }
 
-                ps.addBatch();
+                return successfulInserts;
             }
-
-
-            int[] results = ps.executeBatch();
-
-            conn.commit();
-
-
-            int successfulInserts = 0;
-            for (int result : results) {
-                if (result > 0) {
-                    successfulInserts += result;
+        } catch (SQLException e) {
+            // Si algo falla, hacemos rollback de la transacción
+            if (conn != null) {
+                try {
+                    conn.rollback();
+                } catch (SQLException ex) {
+                    System.err.println("Error al intentar hacer rollback: " + ex.getMessage());
                 }
             }
-
-            System.out.println("Batch insert completado. Inserciones exitosas: " + successfulInserts);
-            return successfulInserts;
-
-        } catch (SQLException e) {
-
-            System.err.println("Error de SQL durante la inserción por lotes: " + e.getMessage());
             throw new RuntimeException("Error de base de datos durante la inserción por lotes.", e);
+        } finally {
+            // Nos aseguramos de restaurar el modo auto-commit y cerrar la conexión
+            if (conn != null) {
+                try {
+                    conn.setAutoCommit(true);
+                    conn.close();
+                } catch (SQLException e) {
+                    System.err.println("Error al cerrar la conexión: " + e.getMessage());
+                }
+            }
         }
 
     }
@@ -527,34 +557,38 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
     @Override
     public String getDatabaseInfo() {
         try (Connection conn = DatabaseConfig.getConnection()) {
-
-
             DatabaseMetaData metaData = conn.getMetaData();
-
-
             StringBuilder info = new StringBuilder();
-            info.append("--- Metadatos de la Base de Datos ---\n");
 
+            // --- CORRECCIONES EN EL FORMATEO DEL STRING ---
+            // Se ajustan las etiquetas para que coincidan con el test.
 
-            info.append("Producto: ").append(metaData.getDatabaseProductName()).append("\n");
-            info.append("Versión del Producto: ").append(metaData.getDatabaseProductVersion()).append("\n");
-            info.append("Driver: ").append(metaData.getDriverName()).append("\n");
-            info.append("Versión del Driver: ").append(metaData.getDriverVersion()).append("\n");
-            info.append("URL de Conexión: ").append(metaData.getURL()).append("\n");
+            info.append("--- Información de la Base de Datos ---\n");
+
+            // Test espera: "H2" y "Base de Datos"
+            info.append("Base de Datos: ").append(metaData.getDatabaseProductName()).append(" v").append(metaData.getDatabaseProductVersion()).append("\n");
+
+            // Test espera: "Driver JDBC"
+            info.append("Driver JDBC: ").append(metaData.getDriverName()).append(" v").append(metaData.getDriverVersion()).append("\n");
+
+            // Test espera: "URL"
+            info.append("URL: ").append(metaData.getURL()).append("\n");
+
+            // Test espera: "Usuario"
             info.append("Usuario: ").append(metaData.getUserName()).append("\n");
 
+            // Test espera: "Soporta Transacciones"
+            info.append("Soporta Transacciones: ").append(metaData.supportsTransactions()).append("\n");
+
+            // Test espera: "Soporta Batch"
+            info.append("Soporta Batch: ").append(metaData.supportsBatchUpdates()).append("\n");
 
             int maxConnections = metaData.getMaxConnections();
-            info.append("Máximas Conexiones Soportadas: ").append(maxConnections == 0 ? "Sin límite o no soportado" : maxConnections).append("\n");
+            info.append("Máximas Conexiones: ").append(maxConnections == 0 ? "Sin límite o no soportado" : maxConnections).append("\n");
 
-            info.append("Soporta Transacciones: ").append(metaData.supportsTransactions()).append("\n");
-            info.append("Soporta Operaciones por Lotes (Batch): ").append(metaData.supportsBatchUpdates()).append("\n");
-
-            // Devolvemos el string construido.
             return info.toString();
 
         } catch (SQLException e) {
-            System.err.println("Error de SQL al obtener los metadatos de la base de datos: " + e.getMessage());
             throw new RuntimeException("Error de base de datos al obtener los metadatos.", e);
         }
     }
@@ -564,35 +598,35 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
     public List<Map<String, Object>> getTableColumns(String tableName) {
         List<Map<String, Object>> columnsInfo = new ArrayList<>();
 
+
         try (Connection conn = DatabaseConfig.getConnection()) {
             DatabaseMetaData metaData = conn.getMetaData();
 
 
-            try (ResultSet rs = metaData.getColumns(null, null, tableName, null)) {
+            String effectiveTableName = tableName.toUpperCase();
+
+
+            try (ResultSet rs = metaData.getColumns(null, null, effectiveTableName, null)) {
 
                 while (rs.next()) {
-
                     Map<String, Object> columnDetails = new HashMap<>();
 
 
-                    columnDetails.put("columnName", rs.getString("COLUMN_NAME"));
-                    columnDetails.put("dataType", rs.getString("TYPE_NAME"));
+
+                    columnDetails.put("name", rs.getString("COLUMN_NAME"));
+                    columnDetails.put("typeName", rs.getString("TYPE_NAME"));
                     columnDetails.put("size", rs.getInt("COLUMN_SIZE"));
-                    columnDetails.put("isNullable", rs.getString("IS_NULLABLE").equalsIgnoreCase("YES"));
-                    columnDetails.put("ordinalPosition", rs.getInt("ORDINAL_POSITION"));
+                    columnDetails.put("nullable", rs.getString("IS_NULLABLE").equalsIgnoreCase("YES"));
+                    columnDetails.put("position", rs.getInt("ORDINAL_POSITION"));
 
                     columnsInfo.add(columnDetails);
                 }
             }
 
 
-            if (columnsInfo.isEmpty()) {
-                throw new RuntimeException("La tabla '" + tableName + "' no fue encontrada en la base de datos.");
-            }
-
         } catch (SQLException e) {
-            System.err.println("Error de SQL al obtener los metadatos de la tabla '" + tableName + "': " + e.getMessage());
-            throw new RuntimeException("Error de base de datos al obtener los metadatos de la tabla.", e);
+            // Si hay un error de BBDD, lanzamos una excepción para no fallar silenciosamente.
+            throw new RuntimeException("Error de base de datos al obtener los metadatos de la tabla " + tableName, e);
         }
 
         return columnsInfo;
@@ -602,32 +636,26 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
 
     @Override
     public int executeCountByDepartment(String department) {
-        final String sql = "SELECT COUNT(*) FROM users WHERE department = ? AND is_active = true";
-
+        final String sql = "SELECT COUNT(*) FROM users WHERE department = ? AND active = true";
 
         try (Connection conn = DatabaseConfig.getConnection();
              PreparedStatement ps = conn.prepareStatement(sql)) {
 
-
             ps.setString(1, department);
 
-
             try (ResultSet rs = ps.executeQuery()) {
-
-
+                // Una consulta COUNT(*) siempre devuelve una fila.
                 if (rs.next()) {
-
                     return rs.getInt(1);
                 } else {
-
-                    throw new RuntimeException("La consulta COUNT no devolvió ninguna fila, lo cual es inesperado.");
+                    // Este caso es teóricamente imposible para COUNT(*), pero es una buena práctica.
+                    return 0;
                 }
             }
-
         } catch (SQLException e) {
-            System.err.println("Error de SQL al contar usuarios en el departamento '" + department + "': " + e.getMessage());
             throw new RuntimeException("Error de base de datos al contar usuarios.", e);
         }
+
     }
 
 
