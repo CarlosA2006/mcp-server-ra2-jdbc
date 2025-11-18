@@ -40,6 +40,7 @@ import java.util.Map;
  */
 @Service
 public class DatabaseUserServiceImpl implements DatabaseUserService {
+    private DatabaseConfig dataSource;
 
     // JDBC PURO - SIN Spring DataSource
     // Los estudiantes usan DatabaseConfig.getConnection() directamente
@@ -242,24 +243,154 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
 
     @Override
     public boolean deleteUser(Long id) {
-        throw new UnsupportedOperationException("TODO: Método deleteUser() para implementar por estudiantes");
+
+        String sql = "DELETE FROM users WHERE id = ?";
+
+
+        try (Connection conn = dataSource.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)){
+
+            ps.setLong(1,id);
+
+            int rowsAffected = ps.executeUpdate();
+            return rowsAffected > 0;
+
+        } catch (SQLException e) {
+            throw new RuntimeException("Error al eliminar usuario con ID " + id + ": " + e.getMessage(), e);
+        }
+
     }
 
     @Override
     public List<User> findAll() {
-        throw new UnsupportedOperationException("TODO: Método findAll() para implementar por estudiantes");
+
+        List<User> users = new ArrayList<>();
+
+        final String sql  = "SELECT * FROM users";
+
+        try (Connection conn = DatabaseConfig.getConnection();
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)){
+            while (rs.next()) {
+                Long id = rs.getLong("id");
+                String name = rs.getString("name");
+                String email = rs.getString("email");
+                String department = rs.getString("department");
+                String role = rs.getString("role");
+                User user = new User(id, name, email, department, role);
+                users.add(user);
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error de SQL al buscar todos los usuarios: "+ e.getMessage());
+            throw new RuntimeException("Error de base de datos al obtener los usuarios.");
+        }
+        return users;
     }
 
     // ========== CE2.c: Advanced Queries ==========
 
     @Override
     public List<User> findUsersByDepartment(String department) {
-        throw new UnsupportedOperationException("TODO: Método findUsersByDepartment() para implementar por estudiantes");
+        List<User> users = new ArrayList<>();
+        // La consulta SQL con un marcador de posición para el departamento.
+        // Incluimos el ORDER BY para ordenar los resultados alfabéticamente por nombre.
+        final String sql = "SELECT * FROM users WHERE department = ? ORDER BY name";
+
+        // Usamos try-with-resources para la gestión automática de Connection, PreparedStatement y ResultSet.
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+            // Asignamos el valor del parámetro 'department' al primer (y único) marcador '?'.
+            // Esto previene la inyección SQL.
+            ps.setString(1, department);
+
+            // Ejecutamos la consulta.
+            try (ResultSet rs = ps.executeQuery()) {
+                // Iteramos sobre los resultados.
+                while (rs.next()) {
+                    // Mapeamos cada fila a un objeto User.
+                    // (Asumiendo que la clase User tiene un campo 'department')
+                    Long id = rs.getLong("id");
+                    String name = rs.getString("name");
+                    String email = rs.getString("email");
+                    String role = rs.getString("role");
+                    String userDepartment = rs.getString("department"); // Leemos el departamento de la BBDD
+
+                    // Creamos el objeto User y lo añadimos a la lista.
+                    // NOTA: Asegúrate de que tu clase User y su constructor acepten el campo 'department'.
+                    User user = new User(id,name,email,userDepartment,role);
+                    users.add(user);
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error de SQL al buscar usuarios por departamento '" + department + "': " + e.getMessage());
+            throw new RuntimeException("Error de base de datos al buscar usuarios por departamento.", e);
+        }
+
+        return users;
     }
+
+
 
     @Override
     public List<User> searchUsers(UserQueryDto query) {
-        throw new UnsupportedOperationException("TODO: Método searchUsers() para implementar por estudiantes");
+        List<User> users = new ArrayList<>();
+
+
+        StringBuilder sql = new StringBuilder("SELECT * FROM users WHERE 1=1");
+        List<Object> params = new ArrayList<>(); // Lista para guardar los parámetros en orden
+
+
+        if (query.getDepartment() != null && !query.getDepartment().isEmpty()) {
+            sql.append(" AND department = ?");
+            params.add(query.getDepartment());
+        }
+        if (query.getRole() != null && !query.getRole().isEmpty()) {
+            sql.append(" AND role = ?");
+            params.add(query.getRole());
+        }
+        if (query.getActive() != null) {
+            sql.append(" AND is_active = ?");
+            params.add(query.getActive());
+        }
+
+
+        sql.append(" ORDER BY id LIMIT ? OFFSET ?");
+        params.add(query.getSize());
+        params.add(query.getPage() * query.getSize());
+
+        System.out.println("SQL Dinámico Ejecutado: " + sql); // Para depuración
+
+
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql.toString())) {
+
+
+            int paramIndex = 1;
+            for (Object param : params) {
+                ps.setObject(paramIndex++, param);
+            }
+
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    // Mapear cada fila a un objeto User
+                    // (Asegúrate de que User y su constructor acepten 'role')
+                    users.add(new User(
+                            rs.getLong("id"),
+                            rs.getString("name"),
+                            rs.getString("email"),
+                            rs.getString("department"),
+                            rs.getString("role")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            System.err.println("Error de SQL en búsqueda dinámica: " + e.getMessage());
+            throw new RuntimeException("Error de base de datos en búsqueda dinámica.", e);
+        }
+
+        return users;
     }
 
 
@@ -280,17 +411,17 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
         Connection conn = null;
 
         try {
-            // Obtener conexión
+
             conn = DatabaseConfig.getConnection();
 
-            // IMPORTANTE: Desactivar auto-commit para control manual
+
             conn.setAutoCommit(false);
 
             String sql = "INSERT INTO users (name, email, department, role, active, created_at, updated_at) " +
                          "VALUES (?, ?, ?, ?, ?, ?, ?)";
 
             try (PreparedStatement pstmt = conn.prepareStatement(sql)) {
-                // Insertar cada usuario en la transacción
+
                 for (User user : users) {
                     pstmt.setString(1, user.getName());
                     pstmt.setString(2, user.getEmail());
@@ -305,17 +436,16 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
                 }
             }
 
-            // Si llegamos aquí, todas las inserciones fueron exitosas
-            // COMMIT: hacer permanentes los cambios
+
             conn.commit();
 
             return true;
 
         } catch (SQLException e) {
-            // Si hubo algún error, deshacer TODOS los cambios
+
             if (conn != null) {
                 try {
-                    // ROLLBACK: deshacer todos los cambios de la transacción
+
                     conn.rollback();
                 } catch (SQLException rollbackEx) {
                     throw new RuntimeException("Error crítico en rollback: " + rollbackEx.getMessage(), rollbackEx);
@@ -325,13 +455,13 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
             throw new RuntimeException("Error en transacción, se hizo rollback: " + e.getMessage(), e);
 
         } finally {
-            // IMPORTANTE: Restaurar auto-commit y cerrar conexión
+
             if (conn != null) {
                 try {
-                    conn.setAutoCommit(true); // Restaurar estado original
+                    conn.setAutoCommit(true);
                     conn.close();
                 } catch (SQLException e) {
-                    // Registrar error pero no lanzar excepción en finally
+
                     System.err.println("Error al cerrar conexión: " + e.getMessage());
                 }
             }
@@ -340,27 +470,166 @@ public class DatabaseUserServiceImpl implements DatabaseUserService {
 
     @Override
     public int batchInsertUsers(List<User> users) {
-        throw new UnsupportedOperationException("TODO: Método batchInsertUsers() para implementar por estudiantes");
+
+        if (users == null || users.isEmpty()) {
+            return 0;
+        }
+
+
+        final String sql = "INSERT INTO users (id, name, email, is_active, last_login, department, role) " +
+                "VALUES (?, ?, ?, ?, ?, ?, ?)";
+
+
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+
+            conn.setAutoCommit(false);
+
+
+            for (User user : users) {
+                ps.setLong(1, user.getId());
+                ps.setString(2, user.getName());
+                ps.setString(3, user.getEmail());
+                ps.setString(6, user.getDepartment());
+                ps.setString(7, user.getRole());
+
+
+                ps.addBatch();
+            }
+
+
+            int[] results = ps.executeBatch();
+
+            conn.commit();
+
+
+            int successfulInserts = 0;
+            for (int result : results) {
+                if (result > 0) {
+                    successfulInserts += result;
+                }
+            }
+
+            System.out.println("Batch insert completado. Inserciones exitosas: " + successfulInserts);
+            return successfulInserts;
+
+        } catch (SQLException e) {
+
+            System.err.println("Error de SQL durante la inserción por lotes: " + e.getMessage());
+            throw new RuntimeException("Error de base de datos durante la inserción por lotes.", e);
+        }
+
     }
 
     // ========== CE2.e: Metadata ==========
 
     @Override
     public String getDatabaseInfo() {
-        throw new UnsupportedOperationException("TODO: Método getDatabaseInfo() para implementar por estudiantes");
+        try (Connection conn = DatabaseConfig.getConnection()) {
+
+
+            DatabaseMetaData metaData = conn.getMetaData();
+
+
+            StringBuilder info = new StringBuilder();
+            info.append("--- Metadatos de la Base de Datos ---\n");
+
+
+            info.append("Producto: ").append(metaData.getDatabaseProductName()).append("\n");
+            info.append("Versión del Producto: ").append(metaData.getDatabaseProductVersion()).append("\n");
+            info.append("Driver: ").append(metaData.getDriverName()).append("\n");
+            info.append("Versión del Driver: ").append(metaData.getDriverVersion()).append("\n");
+            info.append("URL de Conexión: ").append(metaData.getURL()).append("\n");
+            info.append("Usuario: ").append(metaData.getUserName()).append("\n");
+
+
+            int maxConnections = metaData.getMaxConnections();
+            info.append("Máximas Conexiones Soportadas: ").append(maxConnections == 0 ? "Sin límite o no soportado" : maxConnections).append("\n");
+
+            info.append("Soporta Transacciones: ").append(metaData.supportsTransactions()).append("\n");
+            info.append("Soporta Operaciones por Lotes (Batch): ").append(metaData.supportsBatchUpdates()).append("\n");
+
+            // Devolvemos el string construido.
+            return info.toString();
+
+        } catch (SQLException e) {
+            System.err.println("Error de SQL al obtener los metadatos de la base de datos: " + e.getMessage());
+            throw new RuntimeException("Error de base de datos al obtener los metadatos.", e);
+        }
     }
+
 
     @Override
     public List<Map<String, Object>> getTableColumns(String tableName) {
-        throw new UnsupportedOperationException("TODO: Método getTableColumns() para implementar por estudiantes");
+        List<Map<String, Object>> columnsInfo = new ArrayList<>();
+
+        try (Connection conn = DatabaseConfig.getConnection()) {
+            DatabaseMetaData metaData = conn.getMetaData();
+
+
+            try (ResultSet rs = metaData.getColumns(null, null, tableName, null)) {
+
+                while (rs.next()) {
+
+                    Map<String, Object> columnDetails = new HashMap<>();
+
+
+                    columnDetails.put("columnName", rs.getString("COLUMN_NAME"));
+                    columnDetails.put("dataType", rs.getString("TYPE_NAME"));
+                    columnDetails.put("size", rs.getInt("COLUMN_SIZE"));
+                    columnDetails.put("isNullable", rs.getString("IS_NULLABLE").equalsIgnoreCase("YES"));
+                    columnDetails.put("ordinalPosition", rs.getInt("ORDINAL_POSITION"));
+
+                    columnsInfo.add(columnDetails);
+                }
+            }
+
+
+            if (columnsInfo.isEmpty()) {
+                throw new RuntimeException("La tabla '" + tableName + "' no fue encontrada en la base de datos.");
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error de SQL al obtener los metadatos de la tabla '" + tableName + "': " + e.getMessage());
+            throw new RuntimeException("Error de base de datos al obtener los metadatos de la tabla.", e);
+        }
+
+        return columnsInfo;
     }
 
     // ========== CE2.f: Funciones de Agregación ==========
 
     @Override
     public int executeCountByDepartment(String department) {
-        throw new UnsupportedOperationException("TODO: Método executeCountByDepartment() para implementar por estudiantes");
+        final String sql = "SELECT COUNT(*) FROM users WHERE department = ? AND is_active = true";
+
+
+        try (Connection conn = DatabaseConfig.getConnection();
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+
+
+            ps.setString(1, department);
+
+
+            try (ResultSet rs = ps.executeQuery()) {
+
+
+                if (rs.next()) {
+
+                    return rs.getInt(1);
+                } else {
+
+                    throw new RuntimeException("La consulta COUNT no devolvió ninguna fila, lo cual es inesperado.");
+                }
+            }
+
+        } catch (SQLException e) {
+            System.err.println("Error de SQL al contar usuarios en el departamento '" + department + "': " + e.getMessage());
+            throw new RuntimeException("Error de base de datos al contar usuarios.", e);
+        }
     }
+
 
     // ========== HELPER METHODS ==========
 

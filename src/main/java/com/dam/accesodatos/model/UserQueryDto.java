@@ -11,6 +11,8 @@ public class UserQueryDto {
     private Boolean active;
     private Integer limit;
     private Integer offset;
+    private int page = 0;
+    private int size = 0;
 
     public UserQueryDto() {
         this.limit = 10; // Por defecto 10 registros
@@ -75,4 +77,9 @@ public class UserQueryDto {
                 ", offset=" + offset +
                 '}';
     }
+    public int getPage() { return page; }
+    public void setPage(int page) { this.page = page; }
+    public int getSize() { return size; }
+    public void setSize(int size) { this.size = size; }
 }
+
